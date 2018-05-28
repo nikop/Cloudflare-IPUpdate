@@ -1,0 +1,20 @@
+<?php
+
+$user = '';
+$api_key = '';
+
+$ips = [
+	'AAAA' => [
+		'device' => 'eth0',
+		'local' => true,
+	]
+];
+
+$domains = [
+	'example.com' => [
+		'AAAA' => [
+			'www',
+			'@'
+		],
+	],
+];

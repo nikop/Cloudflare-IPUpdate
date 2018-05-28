@@ -1,116 +1,141 @@
 <?php
 
-# Config Start
+require('./config.php');
+require('./vendor/autoload.php');
+require('./solvers.php');
 
-$device = 'eth0';
 
-$user = '[cloudflare email]';
-$api_key = '[cloudflare api key]';
 
-$domains = [
+$key = new \Cloudflare\API\Auth\APIKey($user, $api_key);
+$adapter = new Cloudflare\API\Adapter\Guzzle($key);
+$user = new \Cloudflare\API\Endpoints\User($adapter);
 
-	'domain.com' => [
-		'AAAA' => [
-			'@',
-			'www',
-		]
-	]
-];
+$newIP = [];
 
-$ipv6_cache = dirname(__FILE__) . '/ipv6_cache';
+$os = PHP_OS;
 
-# Config End
-
-require('class_cloudflare.php');
-
-$cf = new cloudflare_api($user, $api_key);
-
-$data = exec('ip -o -6 addr show ' . $device, $rows);
-
-$ipv6 = null;
-
-$old_ipv6 = file_exists($ipv6_cache) ? file_get_contents($ipv6_cache) : null;
-
-foreach ($rows as $row)
+foreach ($ips as $type => $config)
 {
-	if (preg_match('@inet6 (.*)/(\d+) scope global@', $row, $out))
-		$ipv6 = $out[1];
+	$lr = !empty($config['local']) ? 'local' : 'remote';
+	
+	$func = [
+		"getip_{$type}_{$os}_{$lr}",
+		"getip_{$type}_{$lr}",
+		"getip_{$type}_{$os}",
+		"getip_{$type}",
+	];
+	
+	$ip = null;
+	
+	foreach ($func as $f)
+	{
+		if (!function_exists($f))
+		{
+			echo "$f is missing", PHP_EOL;
+			continue;
+		}
+		
+		$ip = $f($config);
+		
+		if ($ip != null)
+		{
+			echo "Used $f to get IP", PHP_EOL;
+			break;
+		}
+	}
+	
+	if ($ip == null)
+	{	
+		die("Failed to solve IP!");
+	}
+	
+	echo "Using $ip for $type", PHP_EOL;
+	
+	$newIP[$type] = $ip;
 }
 
-$has_errors = false;
+$filename = './last.json';
 
-echo 'IPv6: ', $ipv6, "\n";
-
-if ($ipv6 == null)
+if (file_exists($filename))
 {
-	echo "No Ipv6 Found\n";
-	@unlink($ipv6_cache);
-	exit();
+	$lastIP = json_decode(file_get_contents($filename), true);
+	
+	if ($newIP == $lastIP)
+	{
+		die("IP has not changed!");
+	}
 }
 
-if ($old_ipv6 == $ipv6)
-{
-	echo "Cached Ipv6 is same, skipping.";
-	exit();
-}
+$dns = new \Cloudflare\API\Endpoints\DNS($adapter);
+$zones = new \Cloudflare\API\Endpoints\Zones($adapter);
 
 foreach ($domains as $domain => $settings)
 {
-	echo 'Updating: ', $domain, "\n";
-	$data = $cf->rec_load_all($domain);
-
-	if ($data->result != "success")
+	$zoneID = $zones->getZoneID($domain);
+	
+	if (!$zoneID)
 	{
-		$has_errors = true;
-		echo 'Error: ', $data->result, "\n";
+		echo "Error with $domain", PHP_EOL;
 		continue;
 	}
-
-	#var_dump($data);
-
-	foreach ($data->response->recs->objs as $record)
+	
+	$current = [];
+		
+	foreach ($dns->listRecords($zoneID)->result as $record)
 	{
-		$subdomain = $record->display_name;
-
-		if ($subdomain == $domain)
-			$subdomain = '@';
-
-		if (!isset($settings[$record->type]))
-			continue;
-
-		if (!in_array($subdomain, $settings[$record->type]))
-			continue;
-
-		$to = null;
-
- 		if ($record->type == 'AAAA')
-                	$to = $ipv6;
-
-		else
+		if (!isset($current[$type]))
+			$current[$type] = [];
+		
+		$current[$type][$record->name] = $record;
+	}
+	
+	foreach ($settings as $type => $subdomains)
+	{
+		$ip = $newIP[$type];
+		
+		foreach ($subdomains as $subdomain)
 		{
-			echo "Unsupported Type {$record->type}\n";
-			continue;
-		}
-
-		if ($record->content == $to)
-		{
-			echo "{$record->display_name} {$record->type} is correct.\n";
-			continue;
-		}
-
-		echo "Updating Record {$record->display_name} {$record->type}\n", 
-"Old Value: {$record->content}\n",
-"New Value: {$to}\n";
-
-		$result = $cf->rec_edit($domain, $record->type, $record->rec_id, $record->name, $to);
-
-		if (!$result->result == "success")
-		{
-			echo 'ERROR!', "\n";
-			$has_errors = true;
+			$name = $subdomain . '.' . $domain;
+			
+			
+			if (!isset($current[$type][$name]))
+			{
+				echo 'Creating ', $name, PHP_EOL;
+				
+				if ($dns->addRecord($zoneID, $type, $name, $ip, 0, true) === true) {
+					echo "DNS record created.". PHP_EOL;
+				}
+			}
+			else
+			{
+				echo 'Updating ', $name, PHP_EOL;
+				
+				$det = [
+					'type' => $type,
+					'name' => $name,
+					'content' => $ip,
+					'proxied' => $current[$type][$name]->proxied,
+					'ttl' => $current[$type][$name]->ttl
+				];
+				
+				if ($det['content'] == $current[$type][$name]->content)
+				{
+					echo "DNS record is OK.". PHP_EOL;
+					continue;
+				}
+				
+				$res = $dns->updateRecordDetails($zoneID, $current[$type][$name]->id, $det);
+								
+				if ($res->success) {
+					echo "DNS record updated.". PHP_EOL;
+				}
+				else
+				{
+					echo "DNS record failed.". PHP_EOL;
+				}
+			}
 		}
 	}
 }
 
-if (!$has_errors)
-	file_put_contents($ipv6_cache, $ipv6);
+file_put_contents($filename, json_encode($newIP));
