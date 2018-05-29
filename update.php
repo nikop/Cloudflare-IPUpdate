@@ -81,19 +81,20 @@ foreach ($domains as $domain => $settings)
 		
 	foreach ($dns->listRecords($zoneID)->result as $record)
 	{
-		if (!isset($current[$type]))
-			$current[$type] = [];
+		if (!isset($current[$record->type]))
+			$current[$record->type] = [];
 		
 		$current[$type][$record->name] = $record;
 	}
+	
+	print_r($current);
 	
 	foreach ($settings as $type => $subdomains)
 	{
 		$ip = $newIP[$type];
 		
 		foreach ($subdomains as $subdomain)
-		{
-			
+		{			
 			$name = $subdomain == '@' ? $domain : $subdomain . '.' . $domain;	
 			
 			if (!isset($current[$type][$name]))
