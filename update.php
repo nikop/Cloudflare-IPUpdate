@@ -52,7 +52,7 @@ foreach ($ips as $type => $config)
 	$newIP[$type] = $ip;
 }
 
-$filename = './last.json';
+$filename = dirname(__FILE__) . '/last.json';
 
 if (file_exists($filename))
 {
