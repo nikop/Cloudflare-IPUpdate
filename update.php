@@ -93,8 +93,8 @@ foreach ($domains as $domain => $settings)
 		
 		foreach ($subdomains as $subdomain)
 		{
-			$name = $subdomain . '.' . $domain;
 			
+			$name = $subdomain == '@' ? $domain : $subdomain . '.' . $domain;	
 			
 			if (!isset($current[$type][$name]))
 			{
