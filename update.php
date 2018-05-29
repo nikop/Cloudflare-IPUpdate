@@ -84,7 +84,7 @@ foreach ($domains as $domain => $settings)
 		if (!isset($current[$record->type]))
 			$current[$record->type] = [];
 		
-		$current[$type][$record->name] = $record;
+		$current[$record->type][$record->name] = $record;
 	}
 	
 	print_r($current);
