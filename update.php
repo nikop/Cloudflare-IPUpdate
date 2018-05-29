@@ -1,10 +1,8 @@
 <?php
 
-require('./config.php');
-require('./vendor/autoload.php');
-require('./solvers.php');
-
-
+require(dirname(__FILE__) . '/config.php');
+require(dirname(__FILE__) . '/vendor/autoload.php');
+require(dirname(__FILE__) . '/solvers.php');
 
 $key = new \Cloudflare\API\Auth\APIKey($user, $api_key);
 $adapter = new Cloudflare\API\Adapter\Guzzle($key);
