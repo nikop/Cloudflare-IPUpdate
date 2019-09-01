@@ -28,3 +28,16 @@ function getip_AAAA_WINNT_local($config)
 	
 	return null;
 }
+
+// dig @resolver1.opendns.com myip.opendns.com +short
+function getip_A_Linux($config)
+{
+	$data = exec('dig @resolver1.opendns.com myip.opendns.com +short -4', $rows);
+	
+	foreach ($rows as $row)
+	{
+		return trim($row);
+	}
+	
+	return null;
+}
